@@ -4,6 +4,7 @@ PixelSort is a customisable CLI program that manipulates images through sorting 
 
 ## Showcase
 ![showcase image](https://cdn.overseer-bot.net/file/the-void/screenshots/output.png)
+
 *This image was produced with the default pixelsort arguments*
 
 ## Features
