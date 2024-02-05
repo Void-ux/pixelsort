@@ -1,15 +1,21 @@
 use clap::{arg, command, value_parser};
 use image::{GenericImage, GenericImageView, Pixel, Rgb};
 
-
-fn lightness_sort(pixels: Vec<Rgb<u8>>, lower: f32, upper: f32) -> Vec<Vec<Rgb<u8>>> {
+fn hsl_sort(
+    pixels: Vec<Rgb<u8>>,
+    sort_func: fn(&Rgb<u8>) -> f32,
+    exclude_func: fn(&Rgb<u8>) -> f32,
+    lower: f32,
+    upper: f32,
+) -> Vec<Vec<Rgb<u8>>> {
     let mut chunks: Vec<Vec<Rgb<u8>>> = vec![];
 
     let mut group = vec![];
     for i in pixels {
-        let lvl = lightness(&i) as f32;
-        if lvl < lower * 255.0 || lvl > upper * 255.0 {
-            group.sort_by_key(lightness);
+        // could store this; computed twice
+        let val = exclude_func(&i);
+        if val < lower || val > upper {
+            group.sort_by_key(|i| (sort_func(i) * 100.0) as u32);
             group.push(i);
             chunks.push(group.clone());
             group.clear();
@@ -21,11 +27,35 @@ fn lightness_sort(pixels: Vec<Rgb<u8>>, lower: f32, upper: f32) -> Vec<Vec<Rgb<u
     chunks
 }
 
-fn lightness(pixel: &Rgb<u8>) -> u16 {
-    (pixel.0.iter().max().unwrap().to_owned() as u16 + pixel.0.iter().min().unwrap().to_owned() as u16) / 2
-    // pixel.0[0] as u16 + pixel.0[1] as u16 + pixel.0[2] as u16
+fn luminance(pixel: &Rgb<u8>) -> f32 {
+    (pixel.0.iter().max().unwrap().to_owned() as f32 / 255.0
+        + pixel.0.iter().min().unwrap().to_owned() as f32 / 255.0)
+        / 2.0
 }
 
+fn saturation(pixel: &Rgb<u8>) -> f32 {
+    let min = pixel.0.iter().min().unwrap().to_owned() as f32;
+    let max = pixel.0.iter().max().unwrap().to_owned() as f32;
+
+    // no saturation
+    if min == max {
+        return 0.0;
+    }
+    // different formula if luminance > 50%
+    if (min + max) / 2.0 > 0.5 {
+        (max - min) / (max + min)
+    } else {
+        (max - min) / (2.0 - max - min)
+    }
+}
+
+fn get_hsl_func(func_name: &str) -> fn(pixel: &Rgb<u8>) -> f32 {
+    match func_name {
+        "lightness" | "lightness_threshold" => luminance,
+        "saturation" | "saturation_threshold" => saturation,
+        _ => panic!("Unknown HSL function name: {}", func_name),
+    }
+}
 
 fn main() -> Result<(), ()> {
     let matches = command!()
@@ -40,30 +70,29 @@ fn main() -> Result<(), ()> {
             arg!(
                 -e --exclude [value] "Determines which pixels to exclude from sorting"
             )
-            .value_parser(["lightness_threshold"])
+            .value_parser(["lightness_threshold", "saturation_threshold"])
             .default_value("lightness_threshold")
-            .requires_if("lightness_threshold", "lightness_upper_threshold")
-            .requires_if("lightness_threshold", "lightness_lower_threshold")
         )
         .arg(
             arg!(
-                --lightness_lower_threshold [value] "Excludes pixels darker than this value"
+                --lower_threshold [value] "Excludes pixels lower than this HSL value, e.g. excludes pixels darker than 10%"
             )
             .value_parser(value_parser!(f32))
             .default_value("0.25")
         )
         .arg(
             arg!(
-                --lightness_upper_threshold [value] "Excludes pixels brighter than this value"
+                --upper_threshold [value] "Excludes pixels higher than this HSL value, e.g. excludes pixels more saturated than 60%"
             )
             .value_parser(value_parser!(f32))
             .default_value("0.8")
+            .default_value_ifs([("sort", "saturation", Some("0.6"))])
         )
         .arg(
             arg!(
                 -s --sort [value] "The pixel sorting algorithm to use"
             )
-            .value_parser(["lightness"])
+            .value_parser(["lightness", "saturation"])
             .default_value("lightness")
         )
         .arg(
@@ -81,7 +110,7 @@ fn main() -> Result<(), ()> {
         "90" => source.rotate90(),
         "180" => source.rotate180(),
         "270" => source.rotate270(),
-        _ => source
+        _ => source,
     };
     let dims = source.dimensions();
     let mut target = source.clone();
@@ -94,12 +123,14 @@ fn main() -> Result<(), ()> {
         }
 
         let grouped_cols = match matches.get_one::<String>("sort").unwrap().as_str() {
-            "lightness" => lightness_sort(
+            "lightness" | "saturation" => hsl_sort(
                 col,
-                *matches.get_one("lightness_lower_threshold").unwrap(),
-                *matches.get_one("lightness_upper_threshold").unwrap()
+                get_hsl_func(matches.get_one::<String>("sort").unwrap()),
+                get_hsl_func(matches.get_one::<String>("exclude").unwrap()),
+                *matches.get_one("lower_threshold").unwrap(),
+                *matches.get_one("upper_threshold").unwrap(),
             ),
-            _ => panic!("🤠")
+            _ => panic!("🤠"),
         };
         for (c, i) in grouped_cols.concat().iter().enumerate() {
             target.put_pixel(x, c as u32, i.to_rgba())
@@ -108,12 +139,14 @@ fn main() -> Result<(), ()> {
 
     target = match matches.get_one::<String>("rotate").unwrap().as_str() {
         "0" => target,
-        "90" =>  target.rotate270(),
+        "90" => target.rotate270(),
         "180" => target.rotate180(),
         "270" => target.rotate90(),
-        _ => target
+        _ => target,
     };
-    target.save(matches.get_one::<String>("output").unwrap()).expect("Something went wrong with saving the file...");
+    target
+        .save(matches.get_one::<String>("output").unwrap())
+        .expect("Something went wrong with saving the file...");
 
     Ok(())
 }
