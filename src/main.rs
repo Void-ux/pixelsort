@@ -49,10 +49,38 @@ fn saturation(pixel: &Rgb<u8>) -> f32 {
     }
 }
 
+fn hue(pixel: &Rgb<u8>) -> f32 {
+    let min = pixel.0.iter().min().unwrap().to_owned() as i32;
+    let max = pixel.0.iter().max().unwrap().to_owned() as i32;
+    if max - min == 0 {
+        return 0.0;
+    }
+
+    let r = pixel.0[0] as i32;
+    let g = pixel.0[1] as i32;
+    let b = pixel.0[2] as i32;
+
+    let mut _hue: i32;
+    if r == max {
+        _hue = g - b / (max - min);
+    } else if g == max {
+        _hue = 2 + (b - r) / (max - min);
+    } else {
+        _hue = 4 + (b - g) / (max - min);
+    }
+
+    _hue *= 60;
+    if _hue < 0 {
+        _hue += 360;
+    }
+    (_hue / 360) as f32
+}
+
 fn get_hsl_func(func_name: &str) -> fn(pixel: &Rgb<u8>) -> f32 {
     match func_name {
         "lightness" | "lightness_threshold" => luminance,
         "saturation" | "saturation_threshold" => saturation,
+        "hue" | "hue_threshold" => hue,
         _ => panic!("Unknown HSL function name: {}", func_name),
     }
 }
@@ -70,7 +98,7 @@ fn main() -> Result<(), ()> {
             arg!(
                 -e --exclude [value] "Determines which pixels to exclude from sorting"
             )
-            .value_parser(["lightness_threshold", "saturation_threshold"])
+            .value_parser(["lightness_threshold", "saturation_threshold", "hue_threshold"])
             .default_value("lightness_threshold")
         )
         .arg(
@@ -92,7 +120,7 @@ fn main() -> Result<(), ()> {
             arg!(
                 -s --sort [value] "The pixel sorting algorithm to use"
             )
-            .value_parser(["lightness", "saturation"])
+            .value_parser(["lightness", "saturation", "hue"])
             .default_value("lightness")
         )
         .arg(
@@ -123,7 +151,7 @@ fn main() -> Result<(), ()> {
         }
 
         let grouped_cols = match matches.get_one::<String>("sort").unwrap().as_str() {
-            "lightness" | "saturation" => hsl_sort(
+            "lightness" | "saturation" | "hue" => hsl_sort(
                 col,
                 get_hsl_func(matches.get_one::<String>("sort").unwrap()),
                 get_hsl_func(matches.get_one::<String>("exclude").unwrap()),
