@@ -48,7 +48,7 @@ fn main() -> Result<(), ()> {
             .default_value("0.8")
             .default_value_ifs([
                 ("sort", "saturation", Some("0.6")),
-                ("exclude", "random_exclude", Some("9"))
+                ("exclude", "random_exclude", Some("5"))
             ])
         )
         .arg(
