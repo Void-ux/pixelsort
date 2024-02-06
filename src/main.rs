@@ -1,7 +1,28 @@
-use clap::{arg, command, value_parser};
+use rand::Rng;
+use clap::{arg, builder::{ArgPredicate, OsStr}, command, value_parser};
 use image::{GenericImage, GenericImageView, Pixel, Rgb};
 
-fn hsl_sort(
+fn random_exclude(pixels: Vec<Rgb<u8>>, sort_func: fn(&Rgb<u8>) -> f32, lower: f32, upper: f32) -> Vec<Vec<Rgb<u8>>> {
+    let mut chunks: Vec<Vec<Rgb<u8>>> = vec![];
+
+    let mut group = vec![];
+    for i in pixels {
+        // could store this; computed twice
+        let num = rand::thread_rng().gen_range(lower as usize..upper as usize);
+        if num == 0 {
+            group.sort_by_key(|i| (sort_func(i) * 100.0) as u32);
+            group.push(i);
+            chunks.push(group.clone());
+            group.clear();
+        } else {
+            group.push(i);
+        }
+    }
+
+    chunks
+}
+
+fn hsl_exclude(
     pixels: Vec<Rgb<u8>>,
     sort_func: fn(&Rgb<u8>) -> f32,
     exclude_func: fn(&Rgb<u8>) -> f32,
@@ -98,7 +119,7 @@ fn main() -> Result<(), ()> {
             arg!(
                 -e --exclude [value] "Determines which pixels to exclude from sorting"
             )
-            .value_parser(["lightness_threshold", "saturation_threshold", "hue_threshold"])
+            .value_parser(["lightness_threshold", "saturation_threshold", "hue_threshold", "random_exclude"])
             .default_value("lightness_threshold")
         )
         .arg(
@@ -107,6 +128,7 @@ fn main() -> Result<(), ()> {
             )
             .value_parser(value_parser!(f32))
             .default_value("0.25")
+            .default_value_if("exclude", ArgPredicate::Equals(OsStr::from("random_exclude")), Some("0"))
         )
         .arg(
             arg!(
@@ -114,7 +136,10 @@ fn main() -> Result<(), ()> {
             )
             .value_parser(value_parser!(f32))
             .default_value("0.8")
-            .default_value_ifs([("sort", "saturation", Some("0.6"))])
+            .default_value_ifs([
+                ("sort", "saturation", Some("0.6")),
+                ("exclude", "random_exclude", Some("9"))
+            ])
         )
         .arg(
             arg!(
@@ -150,11 +175,17 @@ fn main() -> Result<(), ()> {
             col.push(pixel);
         }
 
-        let grouped_cols = match matches.get_one::<String>("sort").unwrap().as_str() {
-            "lightness" | "saturation" | "hue" => hsl_sort(
+        let grouped_cols = match matches.get_one::<String>("exclude").unwrap().as_str() {
+            "lightness_threshold" | "saturation_threshold" | "hue_threshold" => hsl_exclude(
                 col,
                 get_hsl_func(matches.get_one::<String>("sort").unwrap()),
                 get_hsl_func(matches.get_one::<String>("exclude").unwrap()),
+                *matches.get_one("lower_threshold").unwrap(),
+                *matches.get_one("upper_threshold").unwrap(),
+            ),
+            "random_exclude" => random_exclude(
+                col,
+                get_hsl_func(matches.get_one::<String>("sort").unwrap()),
                 *matches.get_one("lower_threshold").unwrap(),
                 *matches.get_one("upper_threshold").unwrap(),
             ),
