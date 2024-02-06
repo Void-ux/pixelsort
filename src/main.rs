@@ -1,101 +1,11 @@
-use rand::Rng;
+mod exclude;
+mod sort;
+
 use clap::{arg, builder::{ArgPredicate, OsStr}, command, value_parser};
 use image::{GenericImage, GenericImageView, Pixel, Rgb};
+use crate::exclude::{hsl_exclude, random_exclude};
+use crate::sort::{hue, saturation, luminance};
 
-fn random_exclude(pixels: Vec<Rgb<u8>>, sort_func: fn(&Rgb<u8>) -> f32, lower: f32, upper: f32) -> Vec<Vec<Rgb<u8>>> {
-    let mut chunks: Vec<Vec<Rgb<u8>>> = vec![];
-
-    let mut group = vec![];
-    for i in pixels {
-        // could store this; computed twice
-        let num = rand::thread_rng().gen_range(lower as usize..upper as usize);
-        if num == 0 {
-            group.sort_by_key(|i| (sort_func(i) * 100.0) as u32);
-            group.push(i);
-            chunks.push(group.clone());
-            group.clear();
-        } else {
-            group.push(i);
-        }
-    }
-
-    chunks
-}
-
-fn hsl_exclude(
-    pixels: Vec<Rgb<u8>>,
-    sort_func: fn(&Rgb<u8>) -> f32,
-    exclude_func: fn(&Rgb<u8>) -> f32,
-    lower: f32,
-    upper: f32,
-) -> Vec<Vec<Rgb<u8>>> {
-    let mut chunks: Vec<Vec<Rgb<u8>>> = vec![];
-
-    let mut group = vec![];
-    for i in pixels {
-        // could store this; computed twice
-        let val = exclude_func(&i);
-        if val < lower || val > upper {
-            group.sort_by_key(|i| (sort_func(i) * 100.0) as u32);
-            group.push(i);
-            chunks.push(group.clone());
-            group.clear();
-        } else {
-            group.push(i);
-        }
-    }
-
-    chunks
-}
-
-fn luminance(pixel: &Rgb<u8>) -> f32 {
-    (pixel.0.iter().max().unwrap().to_owned() as f32 / 255.0
-        + pixel.0.iter().min().unwrap().to_owned() as f32 / 255.0)
-        / 2.0
-}
-
-fn saturation(pixel: &Rgb<u8>) -> f32 {
-    let min = pixel.0.iter().min().unwrap().to_owned() as f32;
-    let max = pixel.0.iter().max().unwrap().to_owned() as f32;
-
-    // no saturation
-    if min == max {
-        return 0.0;
-    }
-    // different formula if luminance > 50%
-    if (min + max) / 2.0 > 0.5 {
-        (max - min) / (max + min)
-    } else {
-        (max - min) / (2.0 - max - min)
-    }
-}
-
-fn hue(pixel: &Rgb<u8>) -> f32 {
-    let min = pixel.0.iter().min().unwrap().to_owned() as i32;
-    let max = pixel.0.iter().max().unwrap().to_owned() as i32;
-    if max - min == 0 {
-        return 0.0;
-    }
-
-    let r = pixel.0[0] as i32;
-    let g = pixel.0[1] as i32;
-    let b = pixel.0[2] as i32;
-
-    let mut _hue: i32;
-    if r == max {
-        _hue = g - b / (max - min);
-    } else if g == max {
-        _hue = 2 + (b - r) / (max - min);
-    } else {
-        _hue = 4 + (b - g) / (max - min);
-    }
-
-    _hue *= 60;
-    if _hue < 0 {
-        _hue += 360;
-    }
-    (_hue / 360) as f32
-}
 
 fn get_hsl_func(func_name: &str) -> fn(pixel: &Rgb<u8>) -> f32 {
     match func_name {
