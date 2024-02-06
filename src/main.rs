@@ -1,10 +1,14 @@
 mod exclude;
 mod sort;
+mod cli;
 
-use clap::{arg, builder::{ArgPredicate, OsStr}, command, value_parser};
+use std::error::Error;
+
 use image::{GenericImage, GenericImageView, Pixel, Rgb};
+
 use crate::exclude::{hsl_exclude, random_exclude};
 use crate::sort::{hue, saturation, luminance};
+use crate::cli::Cli;
 
 
 fn get_hsl_func(func_name: &str) -> fn(pixel: &Rgb<u8>) -> f32 {
@@ -16,63 +20,15 @@ fn get_hsl_func(func_name: &str) -> fn(pixel: &Rgb<u8>) -> f32 {
     }
 }
 
-fn main() -> Result<(), ()> {
-    let matches = command!()
-        .arg(arg!(<name> "The file path of the image to pixel sort"))
-        .arg(
-            arg!(
-                -o --output [name] "The file path to output to"
-            )
-            .default_value("output.png")
-        )
-        .arg(
-            arg!(
-                -e --exclude [value] "Determines which pixels to exclude from sorting"
-            )
-            .value_parser(["lightness_threshold", "saturation_threshold", "hue_threshold", "random_exclude"])
-            .default_value("lightness_threshold")
-        )
-        .arg(
-            arg!(
-                --lower_threshold [value] "Excludes pixels lower than this HSL value, e.g. excludes pixels darker than 10%"
-            )
-            .value_parser(value_parser!(f32))
-            .default_value("0.25")
-            .default_value_if("exclude", ArgPredicate::Equals(OsStr::from("random_exclude")), Some("0"))
-        )
-        .arg(
-            arg!(
-                --upper_threshold [value] "Excludes pixels higher than this HSL value, e.g. excludes pixels more saturated than 60%"
-            )
-            .value_parser(value_parser!(f32))
-            .default_value("0.8")
-            .default_value_ifs([
-                ("sort", "saturation", Some("0.6")),
-                ("exclude", "random_exclude", Some("5"))
-            ])
-        )
-        .arg(
-            arg!(
-                -s --sort [value] "The pixel sorting algorithm to use"
-            )
-            .value_parser(["lightness", "saturation", "hue"])
-            .default_value("lightness")
-        )
-        .arg(
-            arg!(
-                -r --rotate [value] "Amount to rotate the image by before processing"
-            )
-            .value_parser(["0", "90", "180", "270"])
-            .default_value("0")
-        )
-        .get_matches();
+fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::from_args();
 
-    let mut source = image::open(matches.get_one::<String>("name").unwrap()).unwrap();
-    source = match matches.get_one::<String>("rotate").unwrap().as_str() {
-        "0" => source,
-        "90" => source.rotate90(),
-        "180" => source.rotate180(),
-        "270" => source.rotate270(),
+    let mut source = image::open(cli.input_file).unwrap();
+    source = match cli.rotate {
+        0 => source,
+        90 => source.rotate90(),
+        180 => source.rotate180(),
+        270 => source.rotate270(),
         _ => source,
     };
     let dims = source.dimensions();
@@ -85,36 +41,36 @@ fn main() -> Result<(), ()> {
             col.push(pixel);
         }
 
-        let grouped_cols = match matches.get_one::<String>("exclude").unwrap().as_str() {
+        let grouped_cols = match cli.exclude_algorithm.as_str() {
             "lightness_threshold" | "saturation_threshold" | "hue_threshold" => hsl_exclude(
                 col,
-                get_hsl_func(matches.get_one::<String>("sort").unwrap()),
-                get_hsl_func(matches.get_one::<String>("exclude").unwrap()),
-                *matches.get_one("lower_threshold").unwrap(),
-                *matches.get_one("upper_threshold").unwrap(),
+                get_hsl_func(cli.sort_algorithm.as_str()),
+                get_hsl_func(cli.exclude_algorithm.as_str()),
+                cli.lower_threshold,
+                cli.upper_threshold,
             ),
             "random_exclude" => random_exclude(
                 col,
-                get_hsl_func(matches.get_one::<String>("sort").unwrap()),
-                *matches.get_one("lower_threshold").unwrap(),
-                *matches.get_one("upper_threshold").unwrap(),
+                get_hsl_func(cli.sort_algorithm.as_str()),
+                cli.lower_threshold,
+                cli.upper_threshold,
             ),
-            _ => panic!("🤠"),
+            _ => panic!("Unknown pixel exclusion algorithm"),
         };
         for (c, i) in grouped_cols.concat().iter().enumerate() {
             target.put_pixel(x, c as u32, i.to_rgba())
         }
     }
 
-    target = match matches.get_one::<String>("rotate").unwrap().as_str() {
-        "0" => target,
-        "90" => target.rotate270(),
-        "180" => target.rotate180(),
-        "270" => target.rotate90(),
+    target = match cli.rotate {
+        0 => target,
+        90 => target.rotate270(),
+        180 => target.rotate180(),
+        270 => target.rotate90(),
         _ => target,
     };
     target
-        .save(matches.get_one::<String>("output").unwrap())
+        .save(cli.output_file)
         .expect("Something went wrong with saving the file...");
 
     Ok(())
