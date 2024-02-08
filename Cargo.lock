@@ -233,7 +233,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pixel_sorter"
+name = "pixelsort"
 version = "0.1.0"
 dependencies = [
  "clap",
